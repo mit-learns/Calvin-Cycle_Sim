@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calvin-Benson-Bassham (CBB) Cycle Kinetic Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            slate: { 850: '#151e2e', 950: '#090d16' }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      background-color: #090d16;
+      color: #e2e8f0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .node-group { cursor: pointer; transition: transform 0.18s ease, filter 0.18s ease; }
+    .node-group:hover { filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.55)); }
+    .node-selected rect, .node-selected circle {
+      stroke-width: 3.5px !important;
+      filter: drop-shadow(0 0 12px rgba(250, 204, 21, 0.85));
+    }
+    .pathway-edge { transition: stroke-width 0.2s ease, opacity 0.2s ease; }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-emerald-500 selection:text-slate-950">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-[1600px] mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 font-bold text-slate-950 text-lg">
+          C₃
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            Calvin-Benson-Bassham Cycle Simulator
+            <span class="text-xs font-mono uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">v2.4 Kinetics</span>
+          </h1>
+          <p class="text-xs text-slate-400">Interactive Autotrophic Carbon Fixation, RuBisCO Competition & Sugar-Phosphate Regeneration Engine</p>
+        </div>
+      </div>
+
+      <!-- Master Simulation Controls -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center bg-slate-800/90 p-1 rounded-lg border border-slate-700">
+          <button id="btnPlayPause" class="px-3 py-1.5 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 transition">
+            <span id="playIcon">⏸</span> <span id="playText">Pause</span>
+          </button>
+          <button id="btnStep" class="px-3 py-1.5 rounded-md hover:bg-slate-700 text-slate-200 font-medium text-xs transition" title="Advance 1 Reaction Step">
+            ⏭ Step Cycle
+          </button>
+          <button id="btnReset" class="px-3 py-1.5 rounded-md hover:bg-slate-700 text-slate-300 font-medium text-xs transition">
+            ↺ Reset
+          </button>
+        </div>
+
+        <!-- Stoichiometry Basis Selector -->
+        <select id="stoichSelect" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500">
+          <option value="3">Stoichiometry: 3 CO₂ → 1 Net G3P (Standard)</option>
+          <option value="6">Stoichiometry: 6 CO₂ → 1 Hexose (Glucose Eq.)</option>
+          <option value="1">Stoichiometry: 1 CO₂ → 1/3 G3P (Unitary)</option>
+        </select>
+
+        <button id="btnExportCSV" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition flex items-center gap-1.5">
+          ⬇ Export CSV
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Dashboard Grid -->
+  <main class="max-w-[1600px] w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1">
+
+    <!-- LEFT COLUMN: Organism Presets, Kinetics Controls & Live Stoichiometry (3 Cols) -->
+    <section class="lg:col-span-3 flex flex-col gap-4">
+
+      <!-- Organism / RuBisCO Isoform Selector -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Organism & RuBisCO Isoform</h2>
+          <span id="rubiscoFormBadge" class="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">Form IB (L₈S₈)</span>
+        </div>
+        <select id="presetSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-emerald-500 mb-2">
+          <option value="plant">Spinacia oleracea (C₃ Chloroplast - Form IB)</option>
+          <option value="cyano">Synechococcus elongatus (Cyanobacterium + β-Carboxysome)</option>
+          <option value="purple">Rhodospirillum rubrum (Purple Bacterium - Form II L₂)</option>
+          <option value="chemo">Acidithiobacillus ferrooxidans (Chemolithoautotroph - Form IA)</option>
+        </select>
+        <p id="presetDesc" class="text-[11px] text-slate-400 leading-relaxed">
+          High CO₂/O₂ specificity (S_c/o = 82), moderate catalytic turnover (k_cat = 3.2 s⁻¹). Lacks a carbon-concentrating mechanism; vulnerable to photorespiration.
+        </p>
+      </div>
+
+      <!-- Environmental & Cellular Parameters -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col gap-3.5">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Environmental & Stromal Controls</h2>
+
+        <!-- CO2 Slider -->
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <label for="sliderCO2" class="text-slate-300 font-medium">Dissolved [CO₂] Input</label>
+            <span class="font-mono text-emerald-400"><span id="valCO2">420</span> ppm (<span id="valCO2uM">14.2</span> μM)</span>
+          </div>
+          <input id="sliderCO2" type="range" min="50" max="3000" step="10" value="420" class="w-full accent-emerald-500 cursor-pointer" />
+        </div>
+
+        <!-- O2 Slider -->
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <label for="sliderO2" class="text-slate-300 font-medium">Dissolved [O₂] Tension</label>
+            <span class="font-mono text-rose-400"><span id="valO2">21</span>% (<span id="valO2uM">260</span> μM)</span>
+          </div>
+          <input id="sliderO2" type="range" min="0" max="40" step="1" value="21" class="w-full accent-rose-500 cursor-pointer" />
+        </div>
+
+        <!-- ATP / NADPH Energy Supply -->
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <label for="sliderEnergy" class="text-slate-300 font-medium">ATP & NADPH Supply (Light / e⁻ Donor)</label>
+            <span class="font-mono text-amber-400"><span id="valEnergy">85</span>%</span>
+          </div>
+          <input id="sliderEnergy" type="range" min="0" max="100" step="1" value="85" class="w-full accent-amber-400 cursor-pointer" />
+        </div>
+
+        <!-- Temperature -->
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <label for="sliderTemp" class="text-slate-300 font-medium">Temperature</label>
+            <span class="font-mono text-cyan-400"><span id="valTemp">25</span> °C</span>
+          </div>
+          <input id="sliderTemp" type="range" min="5" max="45" step="1" value="25" class="w-full accent-cyan-400 cursor-pointer" />
+        </div>
+
+        <!-- Stromal pH & Mg2+ / Thioredoxin Activation -->
+        <div class="pt-2 border-t border-slate-800 flex flex-col gap-2">
+          <label class="flex items-center justify-between text-xs cursor-pointer">
+            <span class="text-slate-300">Carboxysome / Pyrenoid CCM</span>
+            <input id="toggleCCM" type="checkbox" class="accent-emerald-500 w-4 h-4 rounded cursor-pointer" />
+          </label>
+          <label class="flex items-center justify-between text-xs cursor-pointer">
+            <span class="text-slate-300">Fd-Thioredoxin Enzyme Activation</span>
+            <input id="toggleTrx" type="checkbox" checked class="accent-emerald-500 w-4 h-4 rounded cursor-pointer" />
+          </label>
+        </div>
+      </div>
+
+      <!-- Live Kinetic Telemetry -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex-1 flex flex-col justify-between">
+        <div>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">RuBisCO Kinetic Telemetry</h2>
+          <div class="grid grid-cols-2 gap-2.5 mb-3">
+            <div class="bg-slate-800/70 border border-slate-700/70 rounded-lg p-2.5">
+              <div class="text-[11px] text-slate-400">Carboxylation (v_c)</div>
+              <div class="text-base font-bold font-mono text-emerald-400"><span id="metricVc">0.00</span> <span class="text-[10px] font-normal text-slate-400">s⁻¹</span></div>
+            </div>
+            <div class="bg-slate-800/70 border border-slate-700/70 rounded-lg p-2.5">
+              <div class="text-[11px] text-slate-400">Oxygenation (v_o)</div>
+              <div class="text-base font-bold font-mono text-rose-400"><span id="metricVo">0.00</span> <span class="text-[10px] font-normal text-slate-400">s⁻¹</span></div>
+            </div>
+            <div class="bg-slate-800/70 border border-slate-700/70 rounded-lg p-2.5">
+              <div class="text-[11px] text-slate-400">Photorespiration Loss</div>
+              <div class="text-base font-bold font-mono text-amber-400"><span id="metricLoss">0.0</span>%</div>
+            </div>
+            <div class="bg-slate-800/70 border border-slate-700/70 rounded-lg p-2.5">
+              <div class="text-[11px] text-slate-400">Quantum Efficiency</div>
+              <div class="text-base font-bold font-mono text-cyan-400"><span id="metricEff">0.00</span> <span class="text-[10px] font-normal text-slate-400">C/ATP</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mini Real-time Graph -->
+        <div>
+          <div class="flex justify-between items-center text-[11px] text-slate-400 mb-1">
+            <span>Live Flux History (v_c vs v_o)</span>
+            <span class="flex items-center gap-2">
+              <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>v_c
+              <span class="inline-block w-2 h-2 rounded-full bg-rose-400"></span>v_o
+            </span>
+          </div>
+          <canvas id="fluxChart" width="320" height="90" class="w-full h-[90px] bg-slate-950 rounded-lg border border-slate-800"></canvas>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- CENTER COLUMN: Interactive Full Biochemical Pathway SVG (6 Cols) -->
+    <section class="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col justify-between relative overflow-hidden">
+      
+      <!-- Top Bar Inside Diagram -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800 z-10">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Phase Filter:</span>
+          <button data-phase="all" class="phase-btn px-2.5 py-1 rounded text-xs font-semibold bg-slate-700 text-white transition">All Phases</button>
+          <button data-phase="1" class="phase-btn px-2.5 py-1 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition">1. Fixation</button>
+          <button data-phase="2" class="phase-btn px-2.5 py-1 rounded text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition">2. Reduction</button>
+          <button data-phase="3" class="phase-btn px-2.5 py-1 rounded text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 transition">3. Regeneration</button>
+        </div>
+        <div class="text-[11px] text-slate-400">
+          💡 <span class="italic">Click any metabolite or enzyme badge to inspect biochemistry</span>
+        </div>
+      </div>
+
+      <!-- Interactive SVG Canvas -->
+      <div class="relative flex-1 flex items-center justify-center my-2">
+        <svg id="cbbSvg" viewBox="0 0 1000 660" class="w-full h-auto max-h-[620px] select-none">
+          <defs>
+            <marker id="arrow-emerald" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981"/>
+            </marker>
+            <marker id="arrow-amber" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#f59e0b"/>
+            </marker>
+            <marker id="arrow-cyan" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#06b6d4"/>
+            </marker>
+            <marker id="arrow-rose" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#f43f5e"/>
+            </marker>
+            <marker id="arrow-purple" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#a855f7"/>
+            </marker>
+          </defs>
+
+          <!-- Background Phase Zones -->
+          <g id="phaseZones" opacity="0.45">
+            <!-- Phase 1 Zone -->
+            <rect x="420" y="25" width="555" height="260" rx="22" fill="#064e3b" fill-opacity="0.18" stroke="#10b981" stroke-dasharray="6 4" stroke-width="1"/>
+            <text x="440" y="50" fill="#34d399" font-size="12" font-weight="bold" letter-spacing="1">PHASE 1: CARBON FIXATION</text>
+
+            <!-- Phase 2 Zone -->
+            <rect x="575" y="295" width="400" height="340" rx="22" fill="#78350f" fill-opacity="0.18" stroke="#f59e0b" stroke-dasharray="6 4" stroke-width="1"/>
+            <text x="765" y="320" fill="#fbbf24" font-size="12" font-weight="bold" letter-spacing="1">PHASE 2: REDUCTION</text>
+
+            <!-- Phase 3 Zone -->
+            <rect x="25" y="25" width="535" height="610" rx="22" fill="#164e63" fill-opacity="0.18" stroke="#06b6d4" stroke-dasharray="6 4" stroke-width="1"/>
+            <text x="45" y="50" fill="#22d3ee" font-size="12" font-weight="bold" letter-spacing="1">PHASE 3: REGENERATION OF RuBP (PENTOSE SHUFFLE)</text>
+          </g>
+
+          <!-- Carboxysome / Pyrenoid Visual Overlay (Hidden unless CCM toggled) -->
+          <g id="ccmShell" class="hidden">
+            <polygon points="620,65 730,65 775,135 730,205 620,205 575,135" fill="#06b6d4" fill-opacity="0.09" stroke="#22d3ee" stroke-width="2" stroke-dasharray="5 3"/>
+            <text x="675" y="55" text-anchor="middle" fill="#22d3ee" font-size="11" font-weight="bold">⬢ CARBOXYSOME / CCM SHELL (HCO₃⁻ → CO₂ via Carbonic Anhydrase)</text>
+          </g>
+
+          <!-- PATHWAY EDGES -->
+          <g id="edgesLayer" fill="none" stroke-linecap="round">
+            <!-- Fixation: RuBP -> 3-PGA -->
+            <path id="edge-rubisco" class="pathway-edge phase-1" d="M 555 110 Q 685 110 740 215" stroke="#10b981" stroke-width="3.5" marker-end="url(#arrow-emerald)"/>
+            <!-- CO2 Input into RuBisCO -->
+            <path id="edge-co2" class="pathway-edge phase-1" d="M 675 30 L 665 118" stroke="#10b981" stroke-width="2.5" stroke-dasharray="4 3" marker-end="url(#arrow-emerald)"/>
+            <!-- Photorespiration: RuBisCO -> 2-PG -->
+            <path id="edge-photo" class="pathway-edge phase-1" d="M 680 135 L 835 135" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="5 4" marker-end="url(#arrow-rose)"/>
+
+            <!-- Reduction: 3-PGA -> 1,3-BPG -->
+            <path id="edge-pgk" class="pathway-edge phase-2" d="M 755 275 L 755 375" stroke="#f59e0b" stroke-width="3.5" marker-end="url(#arrow-amber)"/>
+            <!-- Reduction: 1,3-BPG -> G3P/DHAP -->
+            <path id="edge-gapdh" class="pathway-edge phase-2" d="M 755 435 L 690 520" stroke="#f59e0b" stroke-width="3.5" marker-end="url(#arrow-amber)"/>
+            <!-- Net Export: G3P -> Sugars/Biomass -->
+            <path id="edge-export" class="pathway-edge phase-2" d="M 720 555 L 845 555" stroke="#a855f7" stroke-width="3" marker-end="url(#arrow-purple)"/>
+
+            <!-- Regeneration Branch 1: G3P + DHAP -> FBP -->
+            <path id="edge-ald1" class="pathway-edge phase-3" d="M 600 555 L 495 555" stroke="#06b6d4" stroke-width="3" marker-end="url(#arrow-cyan)"/>
+            <!-- FBP -> F6P -->
+            <path id="edge-fbpase" class="pathway-edge phase-3" d="M 405 555 L 315 555" stroke="#06b6d4" stroke-width="3" marker-end="url(#arrow-cyan)"/>
+            <!-- F6P + G3P -> E4P + Xu5P (Transketolase 1) -->
+            <path id="edge-tk1" class="pathway-edge phase-3" d="M 265 525 L 265 440" stroke="#06b6d4" stroke-width="3" marker-end="url(#arrow-cyan)"/>
+            <path id="edge-tk1-xu5p" class="pathway-edge phase-3" d="M 265 485 Q 375 360 325 245" stroke="#06b6d4" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arrow-cyan)"/>
+            <!-- E4P + DHAP -> SBP (Aldolase 2) -->
+            <path id="edge-ald2" class="pathway-edge phase-3" d="M 215 410 L 145 410" stroke="#06b6d4" stroke-width="3" marker-end="url(#arrow-cyan)"/>
+            <!-- G3P/DHAP crossover feed into Regeneration -->
+            <path id="edge-g3p-crossover" class="pathway-edge phase-3" d="M 615 530 Q 430 435 315 410" stroke="#06b6d4" stroke-width="1.8" stroke-dasharray="4 4" marker-end="url(#arrow-cyan)"/>
+
+            <!-- SBP -> S7P (SBPase) -->
+            <path id="edge-sbpase" class="pathway-edge phase-3" d="M 105 380 L 105 295" stroke="#06b6d4" stroke-width="3" marker-end="url(#arrow-cyan)"/>
+            <!-- S7P + G3P -> R5P + Xu5P (Transketolase 2) -->
+            <path id="edge-tk2" class="pathway-edge phase-3" d="M 145 255 L 235 215" stroke="#06b6d4" stroke-width="3" marker-end="url(#arrow-cyan)"/>
+            <!-- R5P / Xu5P -> Ru5P (Isomerase / Epimerase) -->
+            <path id="edge-iso" class="pathway-edge phase-3" d="M 285 180 L 330 125" stroke="#06b6d4" stroke-width="3.5" marker-end="url(#arrow-cyan)"/>
+            <!-- Ru5P -> RuBP (PRK, consumes ATP) -->
+            <path id="edge-prk" class="pathway-edge phase-3" d="M 385 110 L 455 110" stroke="#06b6d4" stroke-width="3.5" marker-end="url(#arrow-cyan)"/>
+          </g>
+
+          <!-- ANIMATED METABOLITE PARTICLES LAYER -->
+          <g id="particlesLayer"></g>
+
+          <!-- COFACTOR CALLOUT BADGES (ATP, NADPH, Pi) -->
+          <g font-size="10" font-family="monospace">
+            <!-- PGK ATP -> ADP -->
+            <rect x="805" y="310" width="110" height="24" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1"/>
+            <text x="860" y="326" text-anchor="middle" fill="#fbbf24" class="stoich-label" data-base="6" data-unit="ATP → ADP">6 ATP → 6 ADP</text>
+
+            <!-- GAPDH NADPH -> NADP+ -->
+            <rect x="780" y="465" width="145" height="24" rx="6" fill="#1e298b" fill-opacity="0.4" stroke="#38bdf8" stroke-width="1"/>
+            <text x="852" y="481" text-anchor="middle" fill="#38bdf8" class="stoich-label" data-base="6" data-unit="NADPH → NADP⁺ + Pᵢ">6 NADPH → 6 NADP⁺</text>
+
+            <!-- PRK ATP -> ADP -->
+            <rect x="355" y="45" width="110" height="24" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1"/>
+            <text x="410" y="61" text-anchor="middle" fill="#fbbf24" class="stoich-label" data-base="3" data-unit="ATP → ADP">3 ATP → 3 ADP</text>
+          </g>
+
+          <!-- ENZYME BADGES (CLICKABLE) -->
+          <g id="enzymesLayer">
+            <!-- RuBisCO -->
+            <g class="node-group" data-id="enz_rubisco" transform="translate(665, 135)">
+              <rect x="-48" y="-18" width="96" height="36" rx="18" fill="#065f46" stroke="#34d399" stroke-width="2"/>
+              <text x="0" y="-2" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">RuBisCO</text>
+              <text x="0" y="10" text-anchor="middle" fill="#a7f3d0" font-size="8.5">EC 4.1.1.39</text>
+            </g>
+
+            <!-- PGK -->
+            <g class="node-group" data-id="enz_pgk" transform="translate(755, 325)">
+              <rect x="-32" y="-13" width="64" height="26" rx="8" fill="#78350f" stroke="#fbbf24" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#fde68a" font-size="10" font-weight="bold">PGK</text>
+            </g>
+
+            <!-- GAPDH -->
+            <g class="node-group" data-id="enz_gapdh" transform="translate(730, 480)">
+              <rect x="-36" y="-13" width="72" height="26" rx="8" fill="#78350f" stroke="#fbbf24" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#fde68a" font-size="10" font-weight="bold">GAPDH</text>
+            </g>
+
+            <!-- Aldolase (FBP) -->
+            <g class="node-group" data-id="enz_aldolase" transform="translate(550, 555)">
+              <rect x="-34" y="-12" width="68" height="24" rx="7" fill="#155e75" stroke="#22d3ee" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#cffafe" font-size="9.5" font-weight="bold">Aldolase</text>
+            </g>
+
+            <!-- FBPase -->
+            <g class="node-group" data-id="enz_fbpase" transform="translate(360, 555)">
+              <rect x="-32" y="-12" width="64" height="24" rx="7" fill="#155e75" stroke="#22d3ee" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#cffafe" font-size="9.5" font-weight="bold">FBPase</text>
+            </g>
+
+            <!-- Transketolase -->
+            <g class="node-group" data-id="enz_tk" transform="translate(265, 480)">
+              <rect x="-42" y="-12" width="84" height="24" rx="7" fill="#155e75" stroke="#22d3ee" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#cffafe" font-size="9.5" font-weight="bold">Transketolase</text>
+            </g>
+
+            <!-- SBPase -->
+            <g class="node-group" data-id="enz_sbpase" transform="translate(105, 338)">
+              <rect x="-32" y="-12" width="64" height="24" rx="7" fill="#155e75" stroke="#22d3ee" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#cffafe" font-size="9.5" font-weight="bold">SBPase</text>
+            </g>
+
+            <!-- RPI / RPE -->
+            <g class="node-group" data-id="enz_rpi_rpe" transform="translate(302, 152)">
+              <rect x="-36" y="-12" width="72" height="24" rx="7" fill="#155e75" stroke="#22d3ee" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#cffafe" font-size="9.5" font-weight="bold">RPI / RPE</text>
+            </g>
+
+            <!-- PRK -->
+            <g class="node-group" data-id="enz_prk" transform="translate(420, 110)">
+              <rect x="-28" y="-13" width="56" height="26" rx="8" fill="#155e75" stroke="#22d3ee" stroke-width="1.5"/>
+              <text x="0" y="4" text-anchor="middle" fill="#cffafe" font-size="10" font-weight="bold">PRK</text>
+            </g>
+          </g>
+
+          <!-- METABOLITE NODES (CLICKABLE) -->
+          <g id="nodesLayer">
+            <!-- CO2 + H2O + O2 Input -->
+            <g class="node-group" data-id="met_co2" transform="translate(675, 22)">
+              <rect x="-55" y="-15" width="110" height="30" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="2"/>
+              <text x="0" y="4" text-anchor="middle" fill="#34d399" font-size="11" font-weight="bold" class="stoich-label" data-base="3" data-unit="CO₂ + H₂O">3 CO₂ + 3 H₂O</text>
+            </g>
+
+            <!-- RuBP (5C) -->
+            <g class="node-group node-selected" data-id="met_rubp" transform="translate(505, 110)">
+              <rect x="-48" y="-24" width="96" height="48" rx="12" fill="#0f172a" stroke="#10b981" stroke-width="2.5"/>
+              <text x="0" y="-4" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">RuBP</text>
+              <text x="0" y="13" text-anchor="middle" fill="#34d399" font-size="10" font-family="monospace" class="stoich-label" data-base="3" data-unit="× 5C (15C)">3 × 5C (15C)</text>
+            </g>
+
+            <!-- 2-Phosphoglycolate (Photorespiration) -->
+            <g class="node-group" data-id="met_2pg" transform="translate(895, 135)">
+              <rect x="-52" y="-22" width="104" height="44" rx="10" fill="#0f172a" stroke="#f43f5e" stroke-width="2"/>
+              <text x="0" y="-3" text-anchor="middle" fill="#fda4af" font-size="11.5" font-weight="bold">2-PG (C₂ Loss)</text>
+              <text x="0" y="12" text-anchor="middle" fill="#f43f5e" font-size="9.5" font-family="monospace">Photorespiration</text>
+            </g>
+
+            <!-- 3-PGA (3C) -->
+            <g class="node-group" data-id="met_3pga" transform="translate(755, 245)">
+              <rect x="-48" y="-24" width="96" height="48" rx="12" fill="#0f172a" stroke="#10b981" stroke-width="2.5"/>
+              <text x="0" y="-4" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">3-PGA</text>
+              <text x="0" y="13" text-anchor="middle" fill="#34d399" font-size="10" font-family="monospace" class="stoich-label" data-base="6" data-unit="× 3C (18C)">6 × 3C (18C)</text>
+            </g>
+
+            <!-- 1,3-BPG (3C) -->
+            <g class="node-group" data-id="met_bpg" transform="translate(755, 405)">
+              <rect x="-48" y="-24" width="96" height="48" rx="12" fill="#0f172a" stroke="#f59e0b" stroke-width="2.5"/>
+              <text x="0" y="-4" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">1,3-BPG</text>
+              <text x="0" y="13" text-anchor="middle" fill="#fbbf24" font-size="10" font-family="monospace" class="stoich-label" data-base="6" data-unit="× 3C (18C)">6 × 3C (18C)</text>
+            </g>
+
+            <!-- G3P / DHAP Pool (3C) -->
+            <g class="node-group" data-id="met_g3p" transform="translate(660, 555)">
+              <rect x="-56" y="-26" width="112" height="52" rx="12" fill="#0f172a" stroke="#f59e0b" stroke-width="2.5"/>
+              <text x="0" y="-5" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">G3P ⇌ DHAP</text>
+              <text x="0" y="13" text-anchor="middle" fill="#fbbf24" font-size="10" font-family="monospace" class="stoich-label" data-base="6" data-unit="× 3C Triose-P">6 × 3C Triose-P</text>
+            </g>
+
+            <!-- Net Output G3P / Hexose -->
+            <g class="node-group" data-id="met_export" transform="translate(905, 555)">
+              <rect x="-54" y="-26" width="108" height="52" rx="12" fill="#2e1065" stroke="#a855f7" stroke-width="2.5"/>
+              <text x="0" y="-5" text-anchor="middle" fill="#f3e8ff" font-size="12" font-weight="bold">NET OUTPUT</text>
+              <text x="0" y="13" text-anchor="middle" fill="#d8b4fe" font-size="10" font-family="monospace" class="stoich-label" data-base="1" data-unit="× G3P (3C)">1 × G3P (3C)</text>
+            </g>
+
+            <!-- FBP (6C) -->
+            <g class="node-group" data-id="met_fbp" transform="translate(450, 555)">
+              <rect x="-42" y="-22" width="84" height="44" rx="10" fill="#0f172a" stroke="#06b6d4" stroke-width="2"/>
+              <text x="0" y="-3" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">FBP</text>
+              <text x="0" y="12" text-anchor="middle" fill="#22d3ee" font-size="9.5" font-family="monospace">6C Bis-P</text>
+            </g>
+
+            <!-- F6P (6C) -->
+            <g class="node-group" data-id="met_f6p" transform="translate(265, 555)">
+              <rect x="-42" y="-22" width="84" height="44" rx="10" fill="#0f172a" stroke="#06b6d4" stroke-width="2"/>
+              <text x="0" y="-3" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">F6P</text>
+              <text x="0" y="12" text-anchor="middle" fill="#22d3ee" font-size="9.5" font-family="monospace">6C Hexose-P</text>
+            </g>
+
+            <!-- E4P (4C) -->
+            <g class="node-group" data-id="met_e4p" transform="translate(265, 410)">
+              <rect x="-42" y="-22" width="84" height="44" rx="10" fill="#0f172a" stroke="#06b6d4" stroke-width="2"/>
+              <text x="0" y="-3" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">E4P</text>
+              <text x="0" y="12" text-anchor="middle" fill="#22d3ee" font-size="9.5" font-family="monospace">4C Tetrose-P</text>
+            </g>
+
+            <!-- SBP (7C) -->
+            <g class="node-group" data-id="met_sbp" transform="translate(105, 410)">
+              <rect x="-42" y="-22" width="84" height="44" rx="10" fill="#0f172a" stroke="#06b6d4" stroke-width="2"/>
+              <text x="0" y="-3" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">SBP</text>
+              <text x="0" y="12" text-anchor="middle" fill="#22d3ee" font-size="9.5" font-family="monospace">7C Bis-P</text>
+            </g>
+
+            <!-- S7P (7C) -->
+            <g class="node-group" data-id="met_s7p" transform="translate(105, 265)">
+              <rect x="-42" y="-22" width="84" height="44" rx="10" fill="#0f172a" stroke="#06b6d4" stroke-width="2"/>
+              <text x="0" y="-3" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">S7P</text>
+              <text x="0" y="12" text-anchor="middle" fill="#22d3ee" font-size="9.5" font-family="monospace">7C Heptose-P</text>
+            </g>
+
+            <!-- R5P & Xu5P Pool (5C) -->
+            <g class="node-group" data-id="met_pentose" transform="translate(280, 210)">
+              <rect x="-52" y="-22" width="104" height="44" rx="10" fill="#0f172a" stroke="#06b6d4" stroke-width="2"/>
+              <text x="0" y="-3" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">R5P + Xu5P</text>
+              <text x="0" y="12" text-anchor="middle" fill="#22d3ee" font-size="9.5" font-family="monospace">5C Pentose Pool</text>
+            </g>
+
+            <!-- Ru5P (5C) -->
+            <g class="node-group" data-id="met_ru5p" transform="translate(340, 110)">
+              <rect x="-42" y="-24" width="84" height="48" rx="12" fill="#0f172a" stroke="#06b6d4" stroke-width="2.5"/>
+              <text x="0" y="-4" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">Ru5P</text>
+              <text x="0" y="13" text-anchor="middle" fill="#22d3ee" font-size="10" font-family="monospace" class="stoich-label" data-base="3" data-unit="× 5C (15C)">3 × 5C (15C)</text>
+            </g>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Bottom Cumulative Counters Bar -->
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-3 border-t border-slate-800 text-center">
+        <div class="bg-slate-950/80 rounded-lg p-2 border border-slate-800">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">CO₂ Fixed</div>
+          <div id="countCO2" class="text-sm font-bold font-mono text-emerald-400">0.00</div>
+        </div>
+        <div class="bg-slate-950/80 rounded-lg p-2 border border-slate-800">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">Net G3P Synthesized</div>
+          <div id="countG3P" class="text-sm font-bold font-mono text-purple-400">0.00</div>
+        </div>
+        <div class="bg-slate-950/80 rounded-lg p-2 border border-slate-800">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">Hexose Equivalents</div>
+          <div id="countHexose" class="text-sm font-bold font-mono text-cyan-400">0.00</div>
+        </div>
+        <div class="bg-slate-950/80 rounded-lg p-2 border border-slate-800">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">ATP Hydrolyzed</div>
+          <div id="countATP" class="text-sm font-bold font-mono text-amber-400">0.00</div>
+        </div>
+        <div class="bg-slate-950/80 rounded-lg p-2 border border-slate-800 col-span-2 sm:col-span-1">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400">NADPH Oxidized</div>
+          <div id="countNADPH" class="text-sm font-bold font-mono text-sky-400">0.00</div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: Biochemical Inspector & Carbon Balance Sheet (3 Cols) -->
+    <section class="lg:col-span-3 flex flex-col gap-4">
+
+      <!-- Detailed Node / Enzyme Inspector Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex-1 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2.5 mb-3">
+            <div>
+              <span id="inspCategory" class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Metabolite • Phase 1</span>
+              <h2 id="inspTitle" class="text-base font-bold text-white mt-1">Ribulose-1,5-bisphosphate (RuBP)</h2>
+            </div>
+            <div id="inspBadge" class="w-10 h-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-mono font-bold text-emerald-400 text-sm">
+              5C
+            </div>
+          </div>
+
+          <!-- Metadata Pills -->
+          <div class="grid grid-cols-2 gap-2 mb-3 text-xs">
+            <div class="bg-slate-800/60 p-2 rounded border border-slate-700/60">
+              <div class="text-[10px] text-slate-400">Formula / EC Number</div>
+              <div id="inspFormula" class="font-mono text-slate-200 font-semibold mt-0.5">C₅H₁₂O₁₁P₂</div>
+            </div>
+            <div class="bg-slate-800/60 p-2 rounded border border-slate-700/60">
+              <div class="text-[10px] text-slate-400">Energetics (ΔG'°)</div>
+              <div id="inspDeltaG" class="font-mono text-emerald-400 font-semibold mt-0.5">-35.1 kJ/mol</div>
+            </div>
+          </div>
+
+          <!-- Reaction Equation Box -->
+          <div class="mb-3">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Biochemical Reaction</div>
+            <div id="inspReaction" class="p-2.5 rounded-lg bg-slate-950 border border-slate-800 font-mono text-xs text-cyan-300 leading-relaxed">
+              RuBP (5C) + CO₂ + H₂O → 2 × 3-PGA (3C)
+            </div>
+          </div>
+
+          <!-- Detailed Biochemical Notes -->
+          <div class="mb-3">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Mechanism & Physiological Role</div>
+            <p id="inspNotes" class="text-xs text-slate-300 leading-relaxed">
+              The primary 5-carbon CO₂ acceptor of the Calvin-Benson-Bassham cycle. Enolization of RuBP at the RuBisCO active site (coordinated by Mg²⁺ and a carbamylated Lys201 residue) generates a 2,3-enediolate intermediate that nucleophilically attacks CO₂.
+            </p>
+          </div>
+        </div>
+
+        <!-- Regulation & Cofactors Footer -->
+        <div class="pt-3 border-t border-slate-800">
+          <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Cofactors & Allosteric Regulation</div>
+          <p id="inspReg" class="text-xs text-amber-300/90 leading-relaxed font-medium">
+            Regenerated by Phosphoribulokinase (PRK). Competitive binding with CA1P in darkness; released by RuBisCO Activase (RCA) via ATP hydrolysis.
+          </p>
+        </div>
+      </div>
+
+      <!-- Carbon & Energy Accounting Matrix -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Pentose Regeneration Carbon Matrix</h2>
+        <div class="text-[11px] font-mono space-y-1.5 text-slate-300">
+          <div class="flex justify-between py-1 border-b border-slate-800/80">
+            <span class="text-emerald-400">1. Fixation:</span>
+            <span>3(5C) + 3(1C) → 6(3C)</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-slate-800/80">
+            <span class="text-purple-400">2. Net Export:</span>
+            <span>6(3C) - 1(3C G3P) = 15C Pool</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-slate-800/80">
+            <span class="text-cyan-400">3a. Aldolase I:</span>
+            <span>3C + 3C → 6C (FBP → F6P)</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-slate-800/80">
+            <span class="text-cyan-400">3b. Transketolase I:</span>
+            <span>6C + 3C → 4C (E4P) + 5C (Xu5P)</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-slate-800/80">
+            <span class="text-cyan-400">3c. Aldolase II:</span>
+            <span>4C (E4P) + 3C → 7C (SBP → S7P)</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-slate-800/80">
+            <span class="text-cyan-400">3d. Transketolase II:</span>
+            <span>7C (S7P) + 3C → 5C (R5P) + 5C (Xu5P)</span>
+          </div>
+          <div class="flex justify-between pt-1 text-emerald-300 font-bold">
+            <span>Net Regeneration:</span>
+            <span>3 × 5C (Ru5P → RuBP)</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- APPLICATION LOGIC -->
+  <script>
+    /*************************************************************************
+     * 1. BIOCHEMICAL DATABASE (NODES & ENZYMES)
+     *************************************************************************/
+    const BIO_DB = {
+      met_co2: {
+        title: "Carbon Dioxide & Water (CO₂ + H₂O)",
+        category: "Substrate Input • Phase 1",
+        badge: "1C",
+        formula: "CO₂ + H₂O",
+        deltaG: "-35.1 kJ/mol (Fixation)",
+        reaction: "3 CO₂ + 3 H₂O + 3 RuBP → 6 (3-PGA)",
+        notes: "Uncharged dissolved CO₂ (not HCO₃⁻) is the true substrate for RuBisCO. In cyanobacteria and chemolithoautotrophs, cytoplasmic HCO₃⁻ is actively pumped into the cell and converted to CO₂ inside the carboxysome by Carbonic Anhydrase.",
+        reg: "Diffuses through stomata/porins or is concentrated 10–100× near RuBisCO via Carboxysomes (bacteria) or Pyrenoids (algae)."
+      },
+      met_rubp: {
+        title: "D-Ribulose-1,5-bisphosphate (RuBP)",
+        category: "Metabolite • Phase 1 & 3",
+        badge: "5C",
+        formula: "C₅H₁₂O₁₁P₂",
+        deltaG: "-35.1 kJ/mol",
+        reaction: "RuBP (5C) + CO₂ + H₂O → [2-carboxy-3-keto-D-arabinitol 1,5-bisphosphate] → 2 × 3-PGA (3C)",
+        notes: "The primary 5-carbon ketose bisphosphate acceptor of the Calvin-Benson cycle. Deprotonation at C3 forms a reactive 2,3-enediolate intermediate capable of attacking either CO₂ (carboxylation) or O₂ (oxygenation).",
+        reg: "Synthesized irreversibly by PRK. Can lock unactivated RuBisCO in an inactive complex until remodeled by AAA+ chaperone RuBisCO Activase (RCA)."
+      },
+      met_2pg: {
+        title: "2-Phosphoglycolate (2-PG)",
+        category: "Photorespiration Byproduct",
+        badge: "2C",
+        formula: "C₂H₅O₆P",
+        deltaG: "-45.0 kJ/mol",
+        reaction: "RuBP (5C) + O₂ → 1 × 3-PGA (3C) + 1 × 2-Phosphoglycolate (2C)",
+        notes: "Toxic 2-carbon byproduct formed when O₂ outcompetes CO₂ at the RuBisCO active site. Potently inhibits Triose-Phosphate Isomerase (TPI) and PRK if allowed to accumulate.",
+        reg: "Recycled via the C₂ Photorespiratory Cycle (Chloroplast → Peroxisome → Mitochondrion) or bacterial glycerate pathways, releasing 0.5 CO₂ and NH₃ per 2 molecules of 2-PG at additional ATP cost."
+      },
+      met_3pga: {
+        title: "3-Phosphoglycerate (3-PGA)",
+        category: "Metabolite • Phase 1 & 2",
+        badge: "3C",
+        formula: "C₃H₇O₇P",
+        deltaG: "+18.8 kJ/mol (Phosphorylation)",
+        reaction: "3-PGA + ATP ⇌ 1,3-Bisphosphoglycerate + ADP",
+        notes: "The first stable 3-carbon intermediate of the Calvin cycle (giving C₃ photosynthesis its name). Each carboxylation of one 5C RuBP yields two molecules of 3-PGA.",
+        reg: "Can also be diverted directly into central bacterial metabolism (glycolysis / serine biosynthesis) when energy is limiting."
+      },
+      met_bpg: {
+        title: "1,3-Bisphosphoglycerate (1,3-BPG)",
+        category: "Metabolite • Phase 2 (Reduction)",
+        badge: "3C",
+        formula: "C₃H₈O₁₀P₂",
+        deltaG: "-6.3 kJ/mol (Reduction)",
+        reaction: "1,3-BPG + NADPH + H⁺ ⇌ G3P + NADP⁺ + Pᵢ",
+        notes: "A high-energy acyl-phosphate intermediate primed by ATP phosphorylation so that the subsequent reduction to an aldehyde (G3P) by NADPH is thermodynamically favorable.",
+        reg: "Rapidly channeled between PGK and GAPDH multi-enzyme complexes in the stroma/cytoplasm."
+      },
+      met_g3p: {
+        title: "G3P ⇌ DHAP (Triose Phosphate Pool)",
+        category: "Metabolite • Phase 2 & 3 Hub",
+        badge: "3C",
+        formula: "C₃H₇O₆P",
+        deltaG: "-7.5 kJ/mol (TPI Isomerization)",
+        reaction: "Glyceraldehyde-3-phosphate (G3P) ⇌ Dihydroxyacetone phosphate (DHAP)",
+        notes: "Triose-Phosphate Isomerase (TPI) maintains rapid equilibrium between G3P (aldose) and DHAP (ketose). Out of every 6 triose-phosphates generated per 3 CO₂ fixed, 1 exits as net carbon gain and 5 enter Phase 3 to regenerate 3 RuBP.",
+        reg: "Exported across the inner plastid envelope via the Triose-Phosphate/Phosphate Translocator (TPT) in strict 1:1 antiport exchange for inorganic phosphate (Pᵢ)."
+      },
+      met_export: {
+        title: "Net Fixed Carbon Output (G3P / Hexose)",
+        category: "Biosynthetic Yield",
+        badge: "3C/6C",
+        formula: "C₃H₇O₆P → C₆H₁₂O₆",
+        deltaG: "Anabolic Sink",
+        reaction: "3 CO₂ + 9 ATP + 6 NADPH + 6 H⁺ → 1 Net G3P + 9 ADP + 8 Pᵢ + 6 NADP⁺ + 3 H₂O",
+        notes: "Represents the net autotrophic carbon assimilated by the cell. Two exported G3P molecules condense to form 1 Hexose (Fructose-6-P / Glucose-6-P) for glycogen, starch, sucrose, peptidoglycan, or lipid synthesis.",
+        reg: "Regulated by inorganic phosphate (Pᵢ) recycling; if sink synthesis stalls, stromal Pᵢ depletion slows ATP synthase."
+      },
+      met_fbp: {
+        title: "Fructose-1,6-bisphosphate (FBP)",
+        category: "Metabolite • Phase 3 (Regeneration)",
+        badge: "6C",
+        formula: "C₆H₁₄O₁₂P₂",
+        deltaG: "-21.8 kJ/mol (Aldol Condensation)",
+        reaction: "G3P (3C) + DHAP (3C) ⇌ Fructose-1,6-bisphosphate (6C)",
+        notes: "Formed by the head-to-head aldol condensation of one G3P and one DHAP molecule, initiating the carbon-skeleton rearrangement of the regeneration phase.",
+        reg: "Dephosphorylated irreversibly by stromal FBPase."
+      },
+      met_f6p: {
+        title: "Fructose-6-phosphate (F6P)",
+        category: "Metabolite • Phase 3 (Regeneration)",
+        badge: "6C",
+        formula: "C₆H₁₃O₉P",
+        deltaG: "-16.3 kJ/mol (FBPase Hydrolysis)",
+        reaction: "F6P (6C) + G3P (3C) ⇌ Erythrose-4-P (4C) + Xylulose-5-P (5C)",
+        notes: "Serves both as a donor of a 2-carbon ketol group in the first Transketolase reaction and as the branch point for starch/glycogen polysaccharide synthesis.",
+        reg: "Allosterically balanced between CBB cycle regeneration and storage carbohydrate synthesis."
+      },
+      met_e4p: {
+        title: "Erythrose-4-phosphate (E4P)",
+        category: "Metabolite • Phase 3 (Regeneration)",
+        badge: "4C",
+        formula: "C₄H₉O₇P",
+        deltaG: "Near-Equilibrium",
+        reaction: "E4P (4C) + DHAP (3C) ⇌ Sedoheptulose-1,7-bisphosphate (7C)",
+        notes: "Four-carbon aldose phosphate remaining after Transketolase transfers a 2C ketol unit from F6P to G3P. Also serves as the direct precursor to the Shikimate pathway (aromatic amino acids: Phe, Tyr, Trp).",
+        reg: "Condensed with DHAP by Aldolase to generate the 7-carbon SBP intermediate."
+      },
+      met_sbp: {
+        title: "Sedoheptulose-1,7-bisphosphate (SBP)",
+        category: "Metabolite • Phase 3 (Regeneration)",
+        badge: "7C",
+        formula: "C₇H₁₆O₁₄P₂",
+        deltaG: "-14.2 kJ/mol",
+        reaction: "SBP (7C) + H₂O → Sedoheptulose-7-phosphate (7C) + Pᵢ",
+        notes: "Seven-carbon ketose bisphosphate unique to the reductive pentose phosphate pathway. Hydrolyzed irreversibly by Sedoheptulose-1,7-bisphosphatase (SBPase).",
+        reg: "SBPase flux exerts one of the strongest metabolic control coefficients over total CBB cycle carbon assimilation."
+      },
+      met_s7p: {
+        title: "Sedoheptulose-7-phosphate (S7P)",
+        category: "Metabolite • Phase 3 (Regeneration)",
+        badge: "7C",
+        formula: "C₇H₁₅O₁₀P",
+        deltaG: "Near-Equilibrium",
+        reaction: "S7P (7C) + G3P (3C) ⇌ Ribose-5-P (5C) + Xylulose-5-P (5C)",
+        notes: "Donates a 2-carbon ketol group to a third G3P molecule via Transketolase, converting a 7C + 3C pair directly into two 5-carbon pentose phosphates (R5P and Xu5P).",
+        reg: "Requires Thiamine Pyrophosphate (TPP) cofactor bound to Transketolase."
+      },
+      met_pentose: {
+        title: "Pentose Phosphate Pool (R5P + Xu5P)",
+        category: "Metabolite • Phase 3 (Regeneration)",
+        badge: "5C",
+        formula: "C₅H₁₁O₈P",
+        deltaG: "Near-Equilibrium",
+        reaction: "1 R5P + 2 Xu5P ⇌ 3 Ribulose-5-phosphate (Ru5P)",
+        notes: "Contains two molecules of Xylulose-5-phosphate (Xu5P, from the two Transketolase steps) and one molecule of Ribose-5-phosphate (R5P). R5P is also drawn off for nucleotide (RNA/DNA) and histidine synthesis.",
+        reg: "Converted to Ru5P by Ribose-5-P Isomerase (RPI) and Ribulose-5-P 3-Epimerase (RPE)."
+      },
+      met_ru5p: {
+        title: "Ribulose-5-phosphate (Ru5P)",
+        category: "Metabolite • Phase 3 (Regeneration)",
+        badge: "5C",
+        formula: "C₅H₁₁O₈P",
+        deltaG: "-24.3 kJ/mol (PRK Step)",
+        reaction: "3 Ru5P + 3 ATP → 3 RuBP + 3 ADP + 3 H⁺",
+        notes: "Immediate 5-carbon precursor to RuBP. Phosphorylation at C1 by Phosphoribulokinase (PRK) commits the pentose back into the CO₂ fixation step.",
+        reg: "PRK is strictly light/redox-activated via the Ferredoxin-Thioredoxin system (dissociation of the inactive GAPDH-CP12-PRK supramolecular complex)."
+      },
+      enz_rubisco: {
+        title: "RuBisCO (Ribulose-1,5-bisphosphate Carboxylase/Oxygenase)",
+        category: "Enzyme • EC 4.1.1.39",
+        badge: "Enz",
+        formula: "Form I (L₈S₈) / Form II (L₂)",
+        deltaG: "-35.1 kJ/mol",
+        reaction: "Carboxylation (v_c): RuBP + CO₂ + H₂O → 2 (3-PGA)\nOxygenation (v_o): RuBP + O₂ → 3-PGA + 2-PG",
+        notes: "The most abundant enzyme in the biosphere. Catalyzes both CO₂ fixation and competing O₂ oxygenation. Because its catalytic turnover is relatively slow (k_cat ≈ 3–12 s⁻¹), autotrophs must synthesize massive quantities of the enzyme.",
+        reg: "Requires carbamylation of active-site Lys201 by a non-substrate CO₂ molecule, stabilized by Mg²⁺, and continuous remodeling by ATP-dependent RuBisCO Activase (RCA)."
+      },
+      enz_pgk: {
+        title: "Phosphoglycerate Kinase (PGK)",
+        category: "Enzyme • EC 2.7.2.3",
+        badge: "Enz",
+        formula: "Monomeric Kinase (Mg²⁺)",
+        deltaG: "+18.8 kJ/mol",
+        reaction: "3-PGA + Mg-ATP ⇌ 1,3-BPG + Mg-ADP",
+        notes: "Transfers the γ-phosphate from ATP to the carboxyl group of 3-PGA. Although thermodynamically unfavorable under standard conditions, high stromal [ATP]/[ADP] and rapid consumption of 1,3-BPG pull the reaction forward.",
+        reg: "Allosterically sensitive to stromal adenylate energy charge (ATP/ADP ratio) and Mg²⁺ concentration."
+      },
+      enz_gapdh: {
+        title: "Glyceraldehyde-3-Phosphate Dehydrogenase (GAPDH)",
+        category: "Enzyme • EC 1.2.1.13 / 1.2.1.12",
+        badge: "Enz",
+        formula: "A₄ / A₂B₂ Tetramer",
+        deltaG: "-6.3 kJ/mol",
+        reaction: "1,3-BPG + NADPH (or NADH) + H⁺ ⇌ G3P + NADP⁺ + Pᵢ",
+        notes: "Catalyzes the only reductive step of the Calvin cycle. Plant and cyanobacterial enzymes utilize NADPH, whereas many purple and chemolithoautotrophic bacteria utilize NADH generated via reverse electron transport.",
+        reg: "Redox-regulated by Thioredoxin f/m and the small intrinsically disordered scaffold protein CP12."
+      },
+      enz_aldolase: {
+        title: "Fructose-1,6-bisphosphate Aldolase (FBA)",
+        category: "Enzyme • EC 4.1.2.13",
+        badge: "Enz",
+        formula: "Class I (Schiff base) / Class II (Zn²⁺)",
+        deltaG: "-21.8 kJ/mol",
+        reaction: "DHAP + G3P ⇌ FBP (6C)  |  DHAP + E4P ⇌ SBP (7C)",
+        notes: "Dual-specificity aldolase that catalyzes two distinct C–C bond-forming condensations in Phase 3: joining DHAP + G3P (forming 6C FBP) and joining DHAP + E4P (forming 7C SBP).",
+        reg: "Higher plants use Class I aldolases; bacteria and cyanobacteria predominantly use Class II metallo-aldolases (Zn²⁺/Fe²⁺ cofactor)."
+      },
+      enz_fbpase: {
+        title: "Fructose-1,6-bisphosphatase (FBPase)",
+        category: "Enzyme • EC 3.1.3.11",
+        badge: "Enz",
+        formula: "Homotetramer (Mg²⁺)",
+        deltaG: "-16.3 kJ/mol",
+        reaction: "Fructose-1,6-bisphosphate + H₂O → Fructose-6-phosphate + Pᵢ",
+        notes: "Irreversible pacemaker phosphatase that prevents futile cycling during carbon regeneration. Cleaves the C1 phosphate of FBP.",
+        reg: "Strongly activated by reduced Thioredoxin f (disulfide bond reduction), alkaline stromal pH (~8.0), and high [Mg²⁺]."
+      },
+      enz_tk: {
+        title: "Transketolase (TK)",
+        category: "Enzyme • EC 2.2.1.1",
+        badge: "Enz",
+        formula: "Homodimer (TPP + Mg²⁺)",
+        deltaG: "-3.8 kJ/mol",
+        reaction: "F6P + G3P ⇌ E4P + Xu5P  |  S7P + G3P ⇌ R5P + Xu5P",
+        notes: "Transfers a 2-carbon ketol group from a ketose donor (F6P or S7P) to an aldose acceptor (G3P), directly producing two molecules of Xylulose-5-P (Xu5P) and one Ribose-5-P (R5P).",
+        reg: "Strictly dependent on Thiamine Pyrophosphate (Vitamin B₁ derivative) and divalent cations (Mg²⁺ or Ca²⁺)."
+      },
+      enz_sbpase: {
+        title: "Sedoheptulose-1,7-bisphosphatase (SBPase)",
+        category: "Enzyme • EC 3.1.3.37",
+        badge: "Enz",
+        formula: "Homodimer / Bifunctional F/SBPase",
+        deltaG: "-14.2 kJ/mol",
+        reaction: "Sedoheptulose-1,7-bisphosphate + H₂O → Sedoheptulose-7-phosphate + Pᵢ",
+        notes: "Catalyzes the irreversible dephosphorylation of SBP to S7P. In cyanobacteria and many autotrophic bacteria, a single bifunctional FBPase/SBPase enzyme catalyzes both the FBP and SBP hydrolysis reactions!",
+        reg: "Redox-activated via the Ferredoxin-Thioredoxin cascade; feedback-inhibited by inorganic phosphate and glycerate."
+      },
+      enz_rpi_rpe: {
+        title: "Pentose-Phosphate Isomerase (RPI) & Epimerase (RPE)",
+        category: "Enzymes • EC 5.3.1.6 & EC 5.1.3.1",
+        badge: "Enz",
+        formula: "RPI + RPE Complex",
+        deltaG: "Near-Equilibrium (~0 kJ/mol)",
+        reaction: "R5P ⇌ Ru5P (via RPI)  |  2 Xu5P ⇌ 2 Ru5P (via RPE)",
+        notes: "RPI isomerizes the aldose Ribose-5-phosphate (R5P) into the ketose Ribulose-5-phosphate (Ru5P), while RPE inverts the stereochemistry at C3 of Xylulose-5-phosphate (Xu5P) to yield Ru5P.",
+        reg: "Operate near thermodynamic equilibrium; inhibited competitively by erythrose-4-phosphate and sedoheptulose-7-phosphate."
+      },
+      enz_prk: {
+        title: "Phosphoribulokinase (PRK)",
+        category: "Enzyme • EC 2.7.1.19",
+        badge: "Enz",
+        formula: "Dimer (Plants/Cyano) / Octamer (Bacteria)",
+        deltaG: "-24.3 kJ/mol",
+        reaction: "Ribulose-5-phosphate + Mg-ATP → Ribulose-1,5-bisphosphate + Mg-ADP + H⁺",
+        notes: "Commits ribulose-5-phosphate back to the CO₂-accepting pool by phosphorylating C1 using ATP. Ensures directional irreversibility of the entire regeneration phase.",
+        reg: "Light-activated by Thioredoxin f/m reduction of regulatory cysteines; in chemoautotrophic proteobacteria, octameric PRK is allosterically activated by NADH and inhibited by AMP/PEP."
+      }
+    };
+
+    /*************************************************************************
+     * 2. ORGANISM / RUBISCO ISOFORM KINETIC PRESETS
+     *************************************************************************/
+    const ORGANISM_PRESETS = {
+      plant: {
+        name: "Spinacia oleracea (C₃ Chloroplast)",
+        badge: "Form IB (L₈S₈)",
+        kcat_c: 3.2,     // s^-1 carboxylation turnover
+        Kc: 10.5,        // uM Michaelis constant for CO2
+        Ko: 295,         // uM Michaelis constant for O2
+        Sco: 82,         // Specificity factor S_c/o
+        ccmDefault: false,
+        ccmFactor: 8.0,
+        desc: "High CO₂/O₂ specificity (S_c/o = 82), moderate catalytic turnover (k_cat = 3.2 s⁻¹). Lacks a native carbon-concentrating mechanism; vulnerable to O₂ competition."
+      },
+      cyano: {
+        name: "Synechococcus elongatus (Cyanobacterium)",
+        badge: "Form IB + β-Carboxysome",
+        kcat_c: 11.4,    // Fast turnover!
+        Kc: 165.0,       // Low CO2 affinity compensated by carboxysome
+        Ko: 720,
+        Sco: 48,
+        ccmDefault: true,
+        ccmFactor: 25.0, // Carboxysome elevates local [CO2] ~25x
+        desc: "Ultra-fast catalytic rate (k_cat = 11.4 s⁻¹) encapsulated inside a proteinaceous β-carboxysome shell with Carbonic Anhydrase, virtually eliminating photorespiration."
+      },
+      purple: {
+        name: "Rhodospirillum rubrum (Purple Bacterium)",
+        badge: "Form II (Dimeric L₂)",
+        kcat_c: 6.8,
+        Kc: 95.0,
+        Ko: 410,
+        Sco: 15,         // Low specificity, evolved for anaerobic high-CO2 niches
+        ccmDefault: false,
+        ccmFactor: 10.0,
+        desc: "Ancestral homodimeric L₂ RuBisCO lacking small subunits. Low specificity (S_c/o = 15); thrives in anoxic, high-CO₂ aquatic sediments where O₂ competition is minimal."
+      },
+      chemo: {
+        name: "Acidithiobacillus ferrooxidans (Chemolithoautotroph)",
+        badge: "Form IA + α-Carboxysome",
+        kcat_c: 6.1,
+        Kc: 65.0,
+        Ko: 510,
+        Sco: 58,
+        ccmDefault: true,
+        ccmFactor: 18.0,
+        desc: "Acidophilic iron-oxidizing bacterium using Form IA RuBisCO packed in α-carboxysomes. Powered by Fe²⁺ oxidation and reverse electron transport rather than light."
+      }
+    };
+
+    /*************************************************************************
+     * 3. SIMULATOR STATE & KINETIC ENGINE
+     *************************************************************************/
+    const state = {
+      running: true,
+      organism: 'plant',
+      stoichBasis: 3,   // 3 CO2 = 1 G3P
+      co2_ppm: 420,
+      o2_pct: 21,
+      energy_pct: 85,
+      temp_c: 25,
+      ccm_active: false,
+      trx_active: true,
+
+      // Computed live rates
+      vc: 0,
+      vo: 0,
+      netC: 0,
+      lossPct: 0,
+
+      // Cumulative totals
+      totalCO2: 0,
+      totalG3P: 0,
+      totalHexose: 0,
+      totalATP: 0,
+      totalNADPH: 0,
+
+      // Chart history
+      historyVc: new Array(80).fill(0),
+      historyVo: new Array(80).fill(0)
+    };
+
+    // Compute Michaelis-Menten Competitive Kinetics for RuBisCO
+    function computeKinetics() {
+      const org = ORGANISM_PRESETS[state.organism];
+
+      // Convert ambient ppm CO2 & % O2 to dissolved aqueous uM (Henry's law + temp correction)
+      const tempFactorSolubility = Math.exp(-0.028 * (state.temp_c - 25));
+      let co2_uM = (state.co2_ppm * 0.0338) * tempFactorSolubility;
+      const o2_uM = (state.o2_pct * 12.38) * tempFactorSolubility;
+
+      // Apply Carboxysome / CCM concentration boost if enabled
+      if (state.ccm_active) {
+        co2_uM *= org.ccmFactor;
+      }
+
+      // Arrhenius / thermal optimum curve around 28°C
+      const q10 = Math.pow(1.8, (state.temp_c - 25) / 10);
+      const thermalDenat = state.temp_c > 35 ? Math.max(0.1, 1 - 0.08 * (state.temp_c - 35)) : 1.0;
+      const tempMultiplier = q10 * thermalDenat;
+
+      // Specificity decreases at higher temperatures
+      const effectiveSco = org.Sco * Math.exp(-0.022 * (state.temp_c - 25));
+
+      // Vmax_o derived from definition: S_c/o = (Vmax_c / Kc) / (Vmax_o / Ko)
+      const kcat_c_eff = org.kcat_c * tempMultiplier;
+      const kcat_o_eff = (kcat_c_eff * org.Ko) / (effectiveSco * org.Kc);
+
+      // Energy (ATP/NADPH) & Thioredoxin activation modifier
+      const energyMod = Math.pow(state.energy_pct / 100, 0.85);
+      const trxMod = state.trx_active ? 1.0 : 0.18;
+      const regFactor = energyMod * trxMod;
+
+      // Competitive Michaelis-Menten equations
+      const vc = (kcat_c_eff * co2_uM) / (co2_uM + org.Kc * (1 + o2_uM / org.Ko)) * regFactor;
+      const vo = (kcat_o_eff * o2_uM) / (o2_uM + org.Ko * (1 + co2_uM / org.Kc)) * regFactor;
+
+      state.vc = vc;
+      state.vo = vo;
+      // Each oxygenation event releases 0.5 CO2 in C2 salvage pathway
+      state.netC = Math.max(0, vc - 0.5 * vo);
+      state.lossPct = (vc + vo) > 0.001 ? ((0.5 * vo) / (vc + 0.5 * vo)) * 100 : 0;
+
+      // Update UI Readouts
+      document.getElementById('valCO2').textContent = state.co2_ppm;
+      document.getElementById('valCO2uM').textContent = co2_uM.toFixed(1);
+      document.getElementById('valO2').textContent = state.o2_pct;
+      document.getElementById('valO2uM').textContent = o2_uM.toFixed(0);
+      document.getElementById('valEnergy').textContent = state.energy_pct;
+      document.getElementById('valTemp').textContent = state.temp_c;
+
+      document.getElementById('metricVc').textContent = vc.toFixed(2);
+      document.getElementById('metricVo').textContent = vo.toFixed(2);
+      document.getElementById('metricLoss').textContent = state.lossPct.toFixed(1);
+
+      // Quantum / ATP efficiency (Standard CBB = 1 CO2 per 3 ATP = 0.333 C/ATP; drops with photorespiration + CCM cost)
+      const ccmAtpCost = state.ccm_active ? 0.5 : 0;
+      const atpPerCarboxylation = 3.0 + ccmAtpCost + (vo / Math.max(0.01, vc)) * 3.5;
+      const cPerAtp = vc > 0.01 ? (state.netC / vc) / atpPerCarboxylation : 0;
+      document.getElementById('metricEff').textContent = Math.max(0, cPerAtp).toFixed(2);
+
+      // Toggle Carboxysome visual shell
+      const ccmShell = document.getElementById('ccmShell');
+      if (state.ccm_active) {
+        ccmShell.classList.remove('hidden');
+      } else {
+        ccmShell.classList.add('hidden');
+      }
+    }
+
+    /*************************************************************************
+     * 4. SVG ANIMATED PARTICLES ENGINE
+     *************************************************************************/
+    const PATH_DEFS = [
+      { id: 'edge-rubisco', color: '#34d399', rateType: 'vc', count: 5 },
+      { id: 'edge-co2', color: '#6ee7b7', rateType: 'vc', count: 3 },
+      { id: 'edge-photo', color: '#fb7185', rateType: 'vo', count: 3 },
+      { id: 'edge-pgk', color: '#fbbf24', rateType: 'vc', count: 4 },
+      { id: 'edge-gapdh', color: '#38bdf8', rateType: 'vc', count: 4 },
+      { id: 'edge-export', color: '#c084fc', rateType: 'net', count: 3 },
+      { id: 'edge-ald1', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-fbpase', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-tk1', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-tk1-xu5p', color: '#22d3ee', rateType: 'vc', count: 2 },
+      { id: 'edge-ald2', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-g3p-crossover', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-sbpase', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-tk2', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-iso', color: '#22d3ee', rateType: 'vc', count: 3 },
+      { id: 'edge-prk', color: '#22d3ee', rateType: 'vc', count: 3 }
+    ];
+
+    const particles = [];
+    const particlesLayer = document.getElementById('particlesLayer');
+
+    function initParticles() {
+      particlesLayer.innerHTML = '';
+      particles.length = 0;
+
+      PATH_DEFS.forEach(def => {
+        const pathEl = document.getElementById(def.id);
+        if (!pathEl) return;
+        const length = pathEl.getTotalLength();
+
+        for (let i = 0; i < def.count; i++) {
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('r', def.rateType === 'vo' ? '4' : '4.5');
+          circle.setAttribute('fill', def.color);
+          circle.setAttribute(' filter', 'drop-shadow(0 0 4px ' + def.color + ')');
+          particlesLayer.appendChild(circle);
+
+          particles.push({
+            el: circle,
+            pathEl,
+            length,
+            progress: i / def.count,
+            rateType: def.rateType
+          });
+        }
+      });
+    }
+
+    function updateParticles(dt) {
+      particles.forEach(p => {
+        let speed = 0;
+        if (p.rateType === 'vc') speed = state.vc * 0.085;
+        else if (p.rateType === 'vo') speed = state.vo * 0.14;
+        else if (p.rateType === 'net') speed = state.netC * 0.075;
+
+        if (speed < 0.005) {
+          p.el.setAttribute('opacity', '0');
+          return;
+        }
+
+        p.el.setAttribute('opacity', '0.95');
+        p.progress = (p.progress + speed * dt) % 1;
+        const pt = p.pathEl.getPointAtLength(p.progress * p.length);
+        p.el.setAttribute('cx', pt.x);
+        p.el.setAttribute('cy', pt.y);
+      });
+    }
+
+    /*************************************************************************
+     * 5. LIVE CHART RENDERER
+     *************************************************************************/
+    const chartCanvas = document.getElementById('fluxChart');
+    const ctx = chartCanvas.getContext('2d');
+
+    function drawChart() {
+      const w = chartCanvas.width;
+      const h = chartCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Subtle grid lines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      [0.25, 0.5, 0.75].forEach(yFrac => {
+        ctx.beginPath();
+        ctx.moveTo(0, h * yFrac);
+        ctx.lineTo(w, h * yFrac);
+        ctx.stroke();
+      });
+
+      const maxVal = Math.max(12, ...state.historyVc, ...state.historyVo);
+
+      // Draw v_c curve (Emerald)
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      state.historyVc.forEach((v, i) => {
+        const x = (i / (state.historyVc.length - 1)) * w;
+        const y = h - 6 - (v / maxVal) * (h - 14);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Draw v_o curve (Rose)
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      state.historyVo.forEach((v, i) => {
+        const x = (i / (state.historyVo.length - 1)) * w;
+        const y = h - 6 - (v / maxVal) * (h - 14);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    /*************************************************************************
+     * 6. MAIN SIMULATION LOOP & COUNTERS
+     *************************************************************************/
+    let lastTime = performance.now();
+    let chartTick = 0;
+
+    function advanceSimulation(dt) {
+      const dCO2 = state.netC * dt * 0.25;
+      const dRawCarboxyl = state.vc * dt * 0.25;
+      const dOxygenation = state.vo * dt * 0.25;
+
+      state.totalCO2 += dCO2;
+      state.totalG3P = state.totalCO2 / 3.0;
+      state.totalHexose = state.totalCO2 / 6.0;
+      state.totalATP += (3.0 * dRawCarboxyl) + (2.0 * dOxygenation);
+      state.totalNADPH += (2.0 * dRawCarboxyl) + (1.0 * dOxygenation);
+
+      document.getElementById('countCO2').textContent = state.totalCO2.toFixed(2);
+      document.getElementById('countG3P').textContent = state.totalG3P.toFixed(2);
+      document.getElementById('countHexose').textContent = state.totalHexose.toFixed(2);
+      document.getElementById('countATP').textContent = state.totalATP.toFixed(2);
+      document.getElementById('countNADPH').textContent = state.totalNADPH.toFixed(2);
+
+      updateParticles(dt);
+
+      chartTick += dt;
+      if (chartTick >= 0.15) {
+        chartTick = 0;
+        state.historyVc.push(state.vc);
+        state.historyVc.shift();
+        state.historyVo.push(state.vo);
+        state.historyVo.shift();
+        drawChart();
+      }
+    }
+
+    function animate(now) {
+      const dt = Math.min(0.1, (now - lastTime) / 1000);
+      lastTime = now;
+
+      if (state.running) {
+        advanceSimulation(dt);
+      }
+      requestAnimationFrame(animate);
+    }
+
+    /*************************************************************************
+     * 7. INTERACTIVE UI EVENT HANDLERS
+     *************************************************************************/
+    // Node & Enzyme Inspector Click Handler
+    document.querySelectorAll('.node-group').forEach(node => {
+      node.addEventListener('click', () => {
+        document.querySelectorAll('.node-group').forEach(n => n.classList.remove('node-selected'));
+        node.classList.add('node-selected');
+
+        const id = node.getAttribute('data-id');
+        const info = BIO_DB[id];
+        if (!info) return;
+
+        document.getElementById('inspCategory').textContent = info.category;
+        document.getElementById('inspTitle').textContent = info.title;
+        document.getElementById('inspBadge').textContent = info.badge;
+        document.getElementById('inspFormula').textContent = info.formula;
+        document.getElementById('inspDeltaG').textContent = info.deltaG;
+        document.getElementById('inspReaction').textContent = info.reaction;
+        document.getElementById('inspNotes').textContent = info.notes;
+        document.getElementById('inspReg').textContent = info.reg;
+      });
+    });
+
+    // Organism Preset Change
+    document.getElementById('presetSelect').addEventListener('change', (e) => {
+      state.organism = e.target.value;
+      const org = ORGANISM_PRESETS[state.organism];
+      document.getElementById('rubiscoFormBadge').textContent = org.badge;
+      document.getElementById('presetDesc').textContent = org.desc;
+      state.ccm_active = org.ccmDefault;
+      document.getElementById('toggleCCM').checked = org.ccmDefault;
+      computeKinetics();
+    });
+
+    // Sliders & Checkboxes
+    document.getElementById('sliderCO2').addEventListener('input', e => { state.co2_ppm = +e.target.value; computeKinetics(); });
+    document.getElementById('sliderO2').addEventListener('input', e => { state.o2_pct = +e.target.value; computeKinetics(); });
+    document.getElementById('sliderEnergy').addEventListener('input', e => { state.energy_pct = +e.target.value; computeKinetics(); });
+    document.getElementById('sliderTemp').addEventListener('input', e => { state.temp_c = +e.target.value; computeKinetics(); });
+    document.getElementById('toggleCCM').addEventListener('change', e => { state.ccm_active = e.target.checked; computeKinetics(); });
+    document.getElementById('toggleTrx').addEventListener('change', e => { state.trx_active = e.target.checked; computeKinetics(); });
+
+    // Stoichiometry Scaler
+    document.getElementById('stoichSelect').addEventListener('change', e => {
+      const factor = +e.target.value / 3.0;
+      document.querySelectorAll('.stoich-label').forEach(el => {
+        const base = +el.getAttribute('data-base');
+        const unit = el.getAttribute('data-unit');
+        const scaled = Number.isInteger(base * factor) ? (base * factor) : (base * factor).toFixed(1);
+        el.textContent = `${scaled} ${unit}`;
+      });
+    });
+
+    // Phase Highlight Filter Buttons
+    document.querySelectorAll('.phase-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const phase = btn.getAttribute('data-phase');
+        document.querySelectorAll('.pathway-edge').forEach(edge => {
+          if (phase === 'all' || edge.classList.contains(`phase-${phase}`)) {
+            edge.style.opacity = '1';
+          } else {
+            edge.style.opacity = '0.15';
+          }
+        });
+      });
+    });
+
+    // Play / Pause / Step / Reset Controls
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    btnPlayPause.addEventListener('click', () => {
+      state.running = !state.running;
+      document.getElementById('playIcon').textContent = state.running ? '⏸' : '▶';
+      document.getElementById('playText').textContent = state.running ? 'Pause' : 'Resume';
+    });
+
+    document.getElementById('btnStep').addEventListener('click', () => {
+      state.running = false;
+      document.getElementById('playIcon').textContent = '▶';
+      document.getElementById('playText').textContent = 'Resume';
+      advanceSimulation(0.8);
+    });
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+      state.totalCO2 = 0;
+      state.totalG3P = 0;
+      state.totalHexose = 0;
+      state.totalATP = 0;
+      state.totalNADPH = 0;
+      state.historyVc.fill(0);
+      state.historyVo.fill(0);
+      advanceSimulation(0);
+      drawChart();
+    });
+
+    // Export CSV Telemetry
+    document.getElementById('btnExportCSV').addEventListener('click', () => {
+      const rows = [
+        ["Parameter", "Value", "Units"],
+        ["Organism_Preset", ORGANISM_PRESETS[state.organism].name, ""],
+        ["Ambient_CO2", state.co2_ppm, "ppm"],
+        ["Ambient_O2", state.o2_pct, "%"],
+        ["ATP_NADPH_Supply", state.energy_pct, "%"],
+        ["Temperature", state.temp_c, "C"],
+        ["Carboxysome_CCM_Active", state.ccm_active, "boolean"],
+        ["RuBisCO_Vc", state.vc.toFixed(4), "s^-1"],
+        ["RuBisCO_Vo", state.vo.toFixed(4), "s^-1"],
+        ["Photorespiration_Loss", state.lossPct.toFixed(2), "%"],
+        ["Cumulative_CO2_Fixed", state.totalCO2.toFixed(3), "mol_eq"],
+        ["Cumulative_Net_G3P", state.totalG3P.toFixed(3), "mol_eq"],
+        ["Cumulative_Hexose", state.totalHexose.toFixed(3), "mol_eq"],
+        ["Cumulative_ATP_Used", state.totalATP.toFixed(3), "mol_eq"],
+        ["Cumulative_NADPH_Used", state.totalNADPH.toFixed(3), "mol_eq"]
+      ];
+      const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.join(",")).join("\n");
+      const link = document.createElement("a");
+      link.setAttribute("href", encodeURI(csvContent));
+      link.setAttribute("download", `cbb_cycle_simulation_${state.organism}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    // Initialize Simulator on Load
+    initParticles();
+    computeKinetics();
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
