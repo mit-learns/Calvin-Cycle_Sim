@@ -1,4 +1,4 @@
-NOTE: AI was used in Making of Simulation
+## NOTE: AI was used in Making of Simulation
 
 # 🌿 Calvin-Benson-Bassham (CBB) Cycle Kinetic Simulator
 
@@ -31,10 +31,3 @@ An interactive biochemical and kinetic simulator of the **Calvin-Benson-Bassham 
 ## 🚀 Quick Start & GitHub Pages Deployment
 
 This project requires **zero build steps** and runs natively in any modern browser.
-
-### Run Locally
-Clone the repository and open `index.html` in your browser:
-```bash
-git clone [https://github.com/YOUR-USERNAME/calvin-benson-simulator.git](https://github.com/YOUR-USERNAME/calvin-benson-simulator.git)
-cd calvin-benson-simulator
-open index.html
